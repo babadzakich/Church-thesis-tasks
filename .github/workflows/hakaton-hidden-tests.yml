@@ -3,7 +3,7 @@ name: Hakaton Hidden Tests
 on:
   pull_request_target:
     branches:
-      - "tasks/hakaton"
+      - "vovatask"
 
 permissions:
   contents: read
