@@ -41,7 +41,11 @@ jobs:
             --candidate-root ../candidate \
             --baseline-root . > /tmp/hakaton_source.txt
           echo "source=$(cat /tmp/hakaton_source.txt)" >> "$GITHUB_OUTPUT"
-
+      - name: Create tests
+        working-directory: trusted
+        run: |
+          python3 hakaton/gen.py hard
+      
       - name: Run hidden tests against trusted reference
         working-directory: trusted
         run: |

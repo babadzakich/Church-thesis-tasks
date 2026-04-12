@@ -1,7 +1,17 @@
 import os, random, subprocess, sys, time
+from pathlib import Path
 
-os.makedirs("tests/simple", exist_ok=True)
-os.makedirs("tests/hard",   exist_ok=True)
+try:
+    from hakaton.checker import parse_test_file, validate_output
+except ModuleNotFoundError:
+    from checker import parse_test_file, validate_output
+
+BASE_DIR = Path(__file__).resolve().parent
+SIMPLE_DIR = BASE_DIR / "tests" / "simple"
+HARD_DIR = BASE_DIR / "tests" / "hard"
+
+os.makedirs(SIMPLE_DIR, exist_ok=True)
+os.makedirs(HARD_DIR, exist_ok=True)
 
 
 # ─── Вспомогательная проверка (Python-реализация наива) ──────────────────────
@@ -97,8 +107,8 @@ def gen_simple():
 
     for name, n, c in tests:
         answer = python_naive(n, c)
-        write_test(f"tests/simple/{name}.in", n, c)
-        write_answer(f"tests/simple/{name}.ans", answer)
+        write_test(SIMPLE_DIR / f"{name}.in", n, c)
+        write_answer(SIMPLE_DIR / f"{name}.ans", answer)
         status = "POSSIBLE  " if answer else "IMPOSSIBLE"
         print(f"  [{status}] {name}  (N={n}, M={len(c)})")
 
@@ -199,7 +209,7 @@ def gen_hard():
     ]
 
     for name, n, c in spec:
-        write_test(f"tests/hard/{name}.in", n, c)
+        write_test(HARD_DIR / f"{name}.in", n, c)
         naive_limit = "≈268M iter" if n == 28 else ("≈1B iter" if n == 30 else "TLE")
         if n <= 30:
             print(f"  [TLE-target] {name}  (N={n}, M={len(c)})  naïve={naive_limit}")
@@ -213,10 +223,10 @@ def gen_hard():
 # ─── ВЕРИФИКАЦИЯ ТЯЖЁЛЫХ ТЕСТОВ через скомпилированный эталон ────────────────
 def verify_hard():
     import glob
-    for inp in sorted(glob.glob("tests/hard/*.in")):
+    for inp in sorted(glob.glob(str(HARD_DIR / "*.in"))):
         ans = inp.replace(".in", ".ans")
         t0 = time.time()
-        result = subprocess.run(["./solution"], stdin=open(inp), capture_output=True, text=True)
+        result = subprocess.run([str(BASE_DIR / "solution")], stdin=open(inp), capture_output=True, text=True)
         elapsed = time.time() - t0
         with open(ans, "w") as f:
             f.write(result.stdout)
@@ -265,10 +275,10 @@ def stress(iterations=500):
         inp_str = "\n".join(lines) + "\n"
 
         # Запуск всех четырёх решений
-        r_sol   = subprocess.run(["./solution"],   input=inp_str, capture_output=True, text=True)
-        r_sol_c = subprocess.run(["./solution_c"], input=inp_str, capture_output=True, text=True)
-        r_naive   = subprocess.run(["./naive"],     input=inp_str, capture_output=True, text=True)
-        r_naive_c = subprocess.run(["./naive_c"],   input=inp_str, capture_output=True, text=True)
+        r_sol   = subprocess.run([str(BASE_DIR / "solution")],   input=inp_str, capture_output=True, text=True)
+        r_sol_c = subprocess.run([str(BASE_DIR / "solution_c")], input=inp_str, capture_output=True, text=True)
+        r_naive   = subprocess.run([str(BASE_DIR / "naive")],     input=inp_str, capture_output=True, text=True)
+        r_naive_c = subprocess.run([str(BASE_DIR / "naive_c")],   input=inp_str, capture_output=True, text=True)
 
         sol_out     = r_sol.stdout.strip()
         sol_c_out   = r_sol_c.stdout.strip()
@@ -294,27 +304,13 @@ def stress(iterations=500):
                 sys.exit(1)
 
         def check_solution(label, out):
-            """Проверяет, что данное решение удовлетворяет всем ограничениям."""
-            vals = {}
-            for line in out.splitlines():
-                idx, state = line.split(": ")
-                vals[int(idx)-1] = (state == "ON")
-            for c in constraints:
-                violated = False
-                if c[0] == "DEP":
-                    a, b = c[1], c[2]
-                    if vals[a] and not vals[b]: violated = True
-                elif c[0] == "CONFLICT":
-                    a, b = c[1], c[2]
-                    if vals[a] and vals[b]: violated = True
-                elif c[0] == "REQUIRE":
-                    if not vals[c[1]]: violated = True
-                if violated:
-                    print(f"\n✗ НАРУШЕНИЕ ОГРАНИЧЕНИЯ [{label}] на итерации {it}!")
-                    print("Вход:\n" + inp_str)
-                    print(f"{label}:", out)
-                    print("Нарушено:", c)
-                    sys.exit(1)
+            ok, reason = validate_output(out, n, [(kind, args) for kind, *args in constraints], False)
+            if not ok:
+                print(f"\n✗ НАРУШЕНИЕ ОГРАНИЧЕНИЯ [{label}] на итерации {it}!")
+                print("Вход:\n" + inp_str)
+                print(f"{label}:", out)
+                print("Причина:", reason)
+                sys.exit(1)
 
         if not sol_impossible:
             # 2. Проверяем, что все четыре решения удовлетворяют ограничениям
@@ -333,10 +329,10 @@ def benchmark():
     import glob
 
     BINARIES = [
-        ("solution (Rust)", "./solution"),
-        ("solution_c  (C)", "./solution_c"),
-        ("naive   (Rust)",  "./naive"),
-        ("naive_c     (C)", "./naive_c"),
+        ("solution (Rust)", str(BASE_DIR / "solution")),
+        ("solution_c  (C)", str(BASE_DIR / "solution_c")),
+        ("naive   (Rust)",  str(BASE_DIR / "naive")),
+        ("naive_c     (C)", str(BASE_DIR / "naive_c")),
     ]
 
     def run_one(binary, inp, timeout=10):
@@ -359,7 +355,7 @@ def benchmark():
         except subprocess.TimeoutExpired:
             return "TLE", ">10s"
 
-    inputs = sorted(glob.glob("tests/hard/*.in"))
+    inputs = sorted(glob.glob(str(HARD_DIR / "*.in")))
 
     # Ширина колонок
     name_w   = 30   # имя файла
@@ -399,74 +395,15 @@ def benchmark():
     print(sep)
     print()
 
-# ─── ПАРСИНГ .in ФАЙЛА В СПИСОК ОГРАНИЧЕНИЙ ──────────────────────────────────
-def parse_input(path):
-    """Возвращает (n, constraints) где constraints — список кортежей."""
-    with open(path) as f:
-        lines = f.read().splitlines()
-    n, m = map(int, lines[0].split())
-    constraints = []
-    for line in lines[1:m+1]:
-        parts = line.split()
-        if parts[0] == "DEP":
-            constraints.append(("DEP", int(parts[1])-1, int(parts[2])-1))
-        elif parts[0] == "CONFLICT":
-            constraints.append(("CONFLICT", int(parts[1])-1, int(parts[2])-1))
-        elif parts[0] == "REQUIRE":
-            constraints.append(("REQUIRE", int(parts[1])-1))
-    return n, constraints
-
-
-def validate_output(out, n, constraints, expected_impossible):
-    """
-    Проверяет корректность вывода решения.
-    Возвращает (ok: bool, reason: str).
-    """
-    got_impossible = (out == "IMPOSSIBLE")
-
-    if expected_impossible and got_impossible:
-        return True, ""
-    if expected_impossible and not got_impossible:
-        return False, "got POSSIBLE, expected IMPOSSIBLE"
-    if not expected_impossible and got_impossible:
-        return False, "got IMPOSSIBLE, expected POSSIBLE"
-
-    # Проверяем, что ответ удовлетворяет всем ограничениям
-    try:
-        vals = {}
-        for line in out.splitlines():
-            idx, state = line.split(": ")
-            vals[int(idx)-1] = (state == "ON")
-        if len(vals) != n:
-            return False, f"wrong number of lines: {len(vals)} != {n}"
-    except Exception as e:
-        return False, f"parse error: {e}"
-
-    for c in constraints:
-        if c[0] == "DEP":
-            a, b = c[1], c[2]
-            if vals[a] and not vals[b]:
-                return False, f"DEP {a+1} {b+1} violated"
-        elif c[0] == "CONFLICT":
-            a, b = c[1], c[2]
-            if vals[a] and vals[b]:
-                return False, f"CONFLICT {a+1} {b+1} violated"
-        elif c[0] == "REQUIRE":
-            a = c[1]
-            if not vals[a]:
-                return False, f"REQUIRE {a+1} violated"
-    return True, ""
-
-
 # ─── ЗАПУСК ПРОСТЫХ ТЕСТОВ ───────────────────────────────────────────────────
 def test_simple():
     import glob
 
     BINARIES = [
-        ("solution (Rust)", "./solution"),
-        ("solution_c  (C)", "./solution_c"),
-        ("naive   (Rust)",  "./naive"),
-        ("naive_c     (C)", "./naive_c"),
+        ("solution (Rust)", str(BASE_DIR / "solution")),
+        ("solution_c  (C)", str(BASE_DIR / "solution_c")),
+        ("naive   (Rust)",  str(BASE_DIR / "naive")),
+        ("naive_c     (C)", str(BASE_DIR / "naive_c")),
     ]
 
     def run_one(binary, inp, n, constraints, expected_impossible, timeout=10):
@@ -482,7 +419,7 @@ def test_simple():
         except subprocess.TimeoutExpired:
             return "TLE", ">10s", ""
 
-    inputs = sorted(glob.glob("tests/simple/*.in"))
+    inputs = sorted(glob.glob(str(SIMPLE_DIR / "*.in")))
 
     name_w  = 32
     col_w   = 16
@@ -510,7 +447,7 @@ def test_simple():
     for inp in inputs:
         ans_path = inp.replace(".in", ".ans")
         expected_impossible = open(ans_path).read().strip() == "IMPOSSIBLE"
-        n, constraints = parse_input(inp)
+        n, constraints = parse_test_file(inp)
         name = os.path.basename(inp).replace(".in", "")
         row = f"| {name:<{name_w}} "
         for label, binary in BINARIES:
