@@ -133,6 +133,7 @@ static void tarjan_dfs(Tarjan *t, int start) {
 
 // Запускает Тарьяна для всех вершин, возвращает массив scc[]
 static int *tarjan_run(int n, Vec *graph) {
+    int x = 1;
     Tarjan *t = tarjan_new(n, graph);
     for (int v = 0; v < n; v++) {
         if (t->disc[v] == -1)
