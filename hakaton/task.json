@@ -1,0 +1,12 @@
+{
+  "name": "hakaton",
+  "submission_candidates": [
+    "solution.cpp",
+    "solution.c",
+    "solution.rs"
+  ],
+  "reference_solution": "solution.cpp",
+  "public_tests_subdir": "tests/simple",
+  "public_answers_subdir": "tests/simple",
+  "hidden_tests_subdir": "tests/hard"
+}

@@ -1,0 +1,47 @@
+name: Hakaton Public Tests
+
+on:
+  pull_request:
+    branches:
+      - "tasks/hakaton"
+
+permissions:
+  contents: read
+
+jobs:
+  public-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Detect submitted solution
+        id: detect
+        run: |
+          git fetch origin "${{ github.event.pull_request.base.ref }}"
+          git worktree add /tmp/hakaton-base "origin/${{ github.event.pull_request.base.ref }}"
+          python3 ci/select_submission.py \
+            --task-dir hakaton \
+            --candidate-root . \
+            --baseline-root /tmp/hakaton-base > /tmp/hakaton_source.txt
+          echo "source=$(cat /tmp/hakaton_source.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Run public tests
+        run: |
+          python3 ci/run_task_tests.py \
+            --task-dir hakaton \
+            --source "${{ steps.detect.outputs.source }}" \
+            --tests-subdir tests/simple \
+            --expected-mode answers \
+            --answer-subdir tests/simple \
+            --visibility public \
+            --timeout-sec 3
