@@ -7,6 +7,12 @@ import tempfile
 import time
 from pathlib import Path
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from hakaton.checker import normalize_output, parse_test_file, validate_output
+
 
 def load_config(task_dir: Path) -> dict:
     config_path = task_dir / "task.json"
@@ -33,87 +39,6 @@ def compile_source(source: Path, output: Path) -> list[str]:
         sys.stderr.write(result.stderr)
         raise SystemExit(f"Compilation failed for {source}")
     return cmd
-
-
-def normalize_output(text: str) -> str:
-    lines = [line.rstrip() for line in text.splitlines()]
-    return "\n".join(lines).strip()
-
-
-def parse_test_file(test_input: Path) -> tuple[int, list[tuple[str, tuple[int, ...]]]]:
-    lines = [
-        line.strip()
-        for line in test_input.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    if not lines:
-        raise SystemExit(f"Empty test input: {test_input}")
-
-    first = lines[0].split()
-    n = int(first[0])
-    constraints: list[tuple[str, tuple[int, ...]]] = []
-
-    for line in lines[1:]:
-        parts = line.split()
-        kind = parts[0]
-        if kind == "DEP":
-            constraints.append((kind, (int(parts[1]) - 1, int(parts[2]) - 1)))
-        elif kind == "CONFLICT":
-            constraints.append((kind, (int(parts[1]) - 1, int(parts[2]) - 1)))
-        elif kind == "REQUIRE":
-            constraints.append((kind, (int(parts[1]) - 1,)))
-        else:
-            raise SystemExit(f"Unknown constraint {kind} in {test_input}")
-
-    return n, constraints
-
-
-def parse_program_output(output: str, n: int) -> str | list[bool]:
-    lines = [line.strip() for line in output.splitlines() if line.strip()]
-    if len(lines) == 1 and lines[0] == "IMPOSSIBLE":
-        return "IMPOSSIBLE"
-
-    if len(lines) != n:
-        raise SystemExit(f"Expected {n} output lines, got {len(lines)}")
-
-    assignment = [False] * n
-    seen = set()
-    for line in lines:
-        if ":" not in line:
-            raise SystemExit(f"Malformed output line: {line}")
-        left, right = [part.strip() for part in line.split(":", 1)]
-        idx = int(left) - 1
-        if idx < 0 or idx >= n:
-            raise SystemExit(f"Service index out of range: {left}")
-        if idx in seen:
-            raise SystemExit(f"Duplicate service assignment: {left}")
-        if right not in {"ON", "OFF"}:
-            raise SystemExit(f"Malformed state in line: {line}")
-        assignment[idx] = right == "ON"
-        seen.add(idx)
-
-    return assignment
-
-
-def assignment_satisfies(
-    assignment: list[bool],
-    constraints: list[tuple[str, tuple[int, ...]]],
-) -> bool:
-    for kind, args in constraints:
-        if kind == "DEP":
-            a, b = args
-            if assignment[a] and not assignment[b]:
-                return False
-        elif kind == "CONFLICT":
-            a, b = args
-            if assignment[a] and assignment[b]:
-                return False
-        elif kind == "REQUIRE":
-            (a,) = args
-            if not assignment[a]:
-                return False
-    return True
-
 
 def run_binary(binary: Path, test_input: Path, timeout_sec: int) -> tuple[str, float]:
     with test_input.open("r", encoding="utf-8") as handle:
@@ -179,9 +104,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-dir", required=True)
     parser.add_argument("--source", required=True)
-    parser.add_argument("--tests-subdir", required=True)
+    parser.add_argument("--tests-subdir")
+    parser.add_argument("--tests-dir")
     parser.add_argument("--expected-mode", choices=["answers", "reference"], required=True)
     parser.add_argument("--answer-subdir")
+    parser.add_argument("--answers-dir")
     parser.add_argument("--reference-source")
     parser.add_argument("--visibility", choices=["public", "hidden"], default="public")
     parser.add_argument("--timeout-sec", type=int, default=5)
@@ -191,8 +118,24 @@ def main() -> int:
     load_config(task_dir)
 
     source = Path(args.source).resolve()
-    tests_dir = (task_dir / args.tests_subdir).resolve()
-    answer_dir = (task_dir / args.answer_subdir).resolve() if args.answer_subdir else None
+    if not args.tests_subdir and not args.tests_dir:
+        raise SystemExit("Either --tests-subdir or --tests-dir is required")
+    if args.tests_subdir and args.tests_dir:
+        raise SystemExit("Use only one of --tests-subdir or --tests-dir")
+
+    if args.answer_subdir and args.answers_dir:
+        raise SystemExit("Use only one of --answer-subdir or --answers-dir")
+
+    tests_dir = (
+        Path(args.tests_dir).resolve()
+        if args.tests_dir
+        else (task_dir / args.tests_subdir).resolve()
+    )
+    answer_dir = (
+        Path(args.answers_dir).resolve()
+        if args.answers_dir
+        else (task_dir / args.answer_subdir).resolve() if args.answer_subdir else None
+    )
     reference_source = Path(args.reference_source).resolve() if args.reference_source else None
 
     if not tests_dir.exists():
@@ -233,45 +176,16 @@ def main() -> int:
             expected = normalize_output(expected_raw)
             total_time += elapsed
 
-            try:
-                actual_parsed = parse_program_output(actual_raw, n)
-            except SystemExit as exc:
+            expected_is_impossible = normalize_output(expected_raw) == "IMPOSSIBLE"
+            ok, reason = validate_output(actual_raw, n, constraints, expected_is_impossible)
+            if not ok:
                 fail_mismatch(
                     test_input.stem,
-                    reason=str(exc),
+                    reason=reason,
                     visibility=args.visibility,
                     expected=expected,
                     actual=actual,
                 )
-
-            expected_is_impossible = normalize_output(expected_raw) == "IMPOSSIBLE"
-
-            if expected_is_impossible:
-                if actual_parsed != "IMPOSSIBLE":
-                    fail_mismatch(
-                        test_input.stem,
-                        reason="Expected IMPOSSIBLE, but submission produced an assignment.",
-                        visibility=args.visibility,
-                        expected=expected,
-                        actual=actual,
-                    )
-            else:
-                if actual_parsed == "IMPOSSIBLE":
-                    fail_mismatch(
-                        test_input.stem,
-                        reason="A valid assignment exists, but submission reported IMPOSSIBLE.",
-                        visibility=args.visibility,
-                        expected=expected,
-                        actual=actual,
-                    )
-                if not assignment_satisfies(actual_parsed, constraints):
-                    fail_mismatch(
-                        test_input.stem,
-                        reason="Submission produced an assignment that violates task constraints.",
-                        visibility=args.visibility,
-                        expected=expected,
-                        actual=actual,
-                    )
 
             passed += 1
             print(f"[PASS] {test_input.stem} ({elapsed:.3f}s)")

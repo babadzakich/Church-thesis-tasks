@@ -35,6 +35,10 @@ jobs:
             --baseline-root /tmp/hakaton-base > /tmp/hakaton_source.txt
           echo "source=$(cat /tmp/hakaton_source.txt)" >> "$GITHUB_OUTPUT"
 
+      - name: Create tests
+        run: |
+          python3 hakaton/gen.py simple\
+            
       - name: Run public tests
         run: |
           python3 ci/run_task_tests.py \
