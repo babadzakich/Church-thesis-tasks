@@ -27,6 +27,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
 
+      - name: Checkout private hidden tests
+        uses: actions/checkout@v4
+        with:
+          repository: babadzakich/silver-octo-telegram
+          ref: vovatask
+          token: ${{ secrets.PRIVATE_TESTS_TOKEN }}
+          path: private-tests
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -41,18 +49,13 @@ jobs:
             --candidate-root ../candidate \
             --baseline-root . > /tmp/hakaton_source.txt
           echo "source=$(cat /tmp/hakaton_source.txt)" >> "$GITHUB_OUTPUT"
-      - name: Create tests
-        working-directory: trusted
-        run: |
-          python3 hakaton/gen.py hard
-      
       - name: Run hidden tests against trusted reference
         working-directory: trusted
         run: |
           python3 ci/run_task_tests.py \
             --task-dir hakaton \
             --source "${{ steps.detect.outputs.source }}" \
-            --tests-subdir tests/hard \
+            --tests-dir ../private-tests/hakaton/tests/hard \
             --expected-mode reference \
             --reference-source hakaton/solution.cpp \
             --visibility hidden \

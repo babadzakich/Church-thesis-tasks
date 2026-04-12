@@ -104,9 +104,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-dir", required=True)
     parser.add_argument("--source", required=True)
-    parser.add_argument("--tests-subdir", required=True)
+    parser.add_argument("--tests-subdir")
+    parser.add_argument("--tests-dir")
     parser.add_argument("--expected-mode", choices=["answers", "reference"], required=True)
     parser.add_argument("--answer-subdir")
+    parser.add_argument("--answers-dir")
     parser.add_argument("--reference-source")
     parser.add_argument("--visibility", choices=["public", "hidden"], default="public")
     parser.add_argument("--timeout-sec", type=int, default=5)
@@ -116,8 +118,24 @@ def main() -> int:
     load_config(task_dir)
 
     source = Path(args.source).resolve()
-    tests_dir = (task_dir / args.tests_subdir).resolve()
-    answer_dir = (task_dir / args.answer_subdir).resolve() if args.answer_subdir else None
+    if not args.tests_subdir and not args.tests_dir:
+        raise SystemExit("Either --tests-subdir or --tests-dir is required")
+    if args.tests_subdir and args.tests_dir:
+        raise SystemExit("Use only one of --tests-subdir or --tests-dir")
+
+    if args.answer_subdir and args.answers_dir:
+        raise SystemExit("Use only one of --answer-subdir or --answers-dir")
+
+    tests_dir = (
+        Path(args.tests_dir).resolve()
+        if args.tests_dir
+        else (task_dir / args.tests_subdir).resolve()
+    )
+    answer_dir = (
+        Path(args.answers_dir).resolve()
+        if args.answers_dir
+        else (task_dir / args.answer_subdir).resolve() if args.answer_subdir else None
+    )
     reference_source = Path(args.reference_source).resolve() if args.reference_source else None
 
     if not tests_dir.exists():
