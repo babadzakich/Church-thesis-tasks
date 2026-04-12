@@ -3,7 +3,7 @@ name: Hakaton Public Tests
 on:
   pull_request:
     branches:
-      - "tasks/hakaton"
+      - "vovatask"
 
 permissions:
   contents: read
