@@ -21,10 +21,8 @@ def parse_test_file(test_input: str | Path) -> tuple[int, list[Constraint]]:
     if not lines:
         raise ValueError(f"Empty test input: {path}")
 
-    first = lines[0].split()
-    n = int(first[0])
+    n, _ = map(int, lines[0].split())
     constraints: list[Constraint] = []
-
     for line in lines[1:]:
         parts = line.split()
         kind = parts[0]
@@ -36,7 +34,6 @@ def parse_test_file(test_input: str | Path) -> tuple[int, list[Constraint]]:
             constraints.append((kind, (int(parts[1]) - 1,)))
         else:
             raise ValueError(f"Unknown constraint {kind} in {path}")
-
     return n, constraints
 
 

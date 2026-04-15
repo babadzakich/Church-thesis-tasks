@@ -49,38 +49,99 @@ jobs:
             --candidate-root ../candidate \
             --baseline-root . > /tmp/hakaton_source.txt
           echo "source=$(cat /tmp/hakaton_source.txt)" >> "$GITHUB_OUTPUT"
-      - name: Run hidden tests against trusted reference
+          team_dir="$(dirname "$(cat /tmp/hakaton_source.txt)")"
+          echo "team=$(basename "$team_dir")" >> "$GITHUB_OUTPUT"
+          echo "team_hash_file=$team_dir/team.hash" >> "$GITHUB_OUTPUT"
+
+      - name: Validate team metadata
+        working-directory: trusted
+        run: |
+          if [ ! -f "${{ steps.detect.outputs.team_hash_file }}" ]; then
+            echo "Missing team.hash in team folder: ${{ steps.detect.outputs.team }}"
+            exit 1
+          fi
+          if [ ! -s "${{ steps.detect.outputs.team_hash_file }}" ]; then
+            echo "team.hash is empty for team: ${{ steps.detect.outputs.team }}"
+            exit 1
+          fi
+
+      - name: Run public tests for score
+        id: public_score
+        continue-on-error: true
         working-directory: trusted
         run: |
           python3 ci/run_task_tests.py \
             --task-dir hakaton \
             --source "${{ steps.detect.outputs.source }}" \
-            --tests-dir ../private-tests/hakaton/tests/hard \
+            --tests-subdir tests/simple \
+            --expected-mode answers \
+            --answer-subdir tests/simple \
+            --visibility public \
+            --group-name Public \
+            --test-weight 5 \
+            --json-output /tmp/public-summary.json \
+            --timeout-sec 3
+
+      - name: Run hidden tests against canonical reference output
+        id: hidden_score
+        continue-on-error: true
+        working-directory: trusted
+        run: |
+          python3 ci/run_task_tests.py \
+            --task-dir hakaton \
+            --source "${{ steps.detect.outputs.source }}" \
+            --tests-dir ../private-tests/hakaton/tests \
             --expected-mode reference \
-            --reference-source hakaton/solution.cpp \
+            --reference-source ../private-tests/hakaton/solution.cpp \
+            --test-pattern 'H*.in' \
             --visibility hidden \
+            --group-name Hidden \
+            --test-weight 10 \
+            --json-output /tmp/hidden-summary.json \
             --timeout-sec 8
 
+      - name: Build score report
+        if: always()
+        working-directory: trusted
+        run: |
+          python3 ci/build_score_report.py \
+            --task-config hakaton/task.json \
+            --public-summary /tmp/public-summary.json \
+            --hidden-summary /tmp/hidden-summary.json \
+            --markdown-output /tmp/hakaton-score.md \
+            --json-output /tmp/hakaton-score.json
+
+      - name: Publish score to pipeline API
+        if: always()
+        working-directory: trusted
+        env:
+          PIPELINE_API_BASE_URL: ${{ secrets.PIPELINE_API_BASE_URL }}
+          PIPELINE_TOKEN: ${{ secrets.PIPELINE_TOKEN }}
+        run: |
+          python3 ci/publish_pipeline_score.py \
+            --task-config hakaton/task.json \
+            --score-json /tmp/hakaton-score.json \
+            --team-name "${{ steps.detect.outputs.team }}" \
+            --team-hash-file "${{ steps.detect.outputs.team_hash_file }}" \
+            --api-base-url "$PIPELINE_API_BASE_URL"
+
       - name: Comment result
-        if: success()
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/hakaton-score.md', 'utf8');
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: "Hidden tests passed."
+              body
             })
 
-      - name: Comment failure
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: "Hidden tests failed."
-            })
+      - name: Fail workflow if any suite failed
+        if: always()
+        run: |
+          if [ "${{ steps.public_score.outcome }}" != "success" ] || [ "${{ steps.hidden_score.outcome }}" != "success" ]; then
+            exit 1
+          fi

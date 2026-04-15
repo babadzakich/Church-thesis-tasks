@@ -1,12 +1,21 @@
 {
   "name": "hakaton",
+  "pipeline_task_id": 1,
+  "submission_root": "teams",
   "submission_candidates": [
     "solution.cpp",
     "solution.c",
     "solution.rs"
   ],
-  "reference_solution": "solution.cpp",
-  "public_tests_subdir": "tests/simple",
-  "public_answers_subdir": "tests/simple",
-  "hidden_tests_subdir": "tests/hard"
+  "scoring": {
+    "final_score_max": 100,
+    "public": {
+      "label": "Public",
+      "weight_per_test": 5
+    },
+    "hidden": {
+      "label": "Hidden",
+      "weight_per_test": 10
+    }
+  }
 }
