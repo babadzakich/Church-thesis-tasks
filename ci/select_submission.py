@@ -16,29 +16,35 @@ def main() -> int:
     baseline_root = Path(args.baseline_root).resolve() if args.baseline_root else None
 
     config = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+    submission_root = config.get("submission_root", "")
     candidates = config.get("submission_candidates", [])
     task_name = task_dir.name
 
     changed = []
-    for rel_path in candidates:
-        candidate_file = candidate_root / task_name / rel_path
-        if not candidate_file.exists():
-            continue
+    submissions_dir = candidate_root / task_name / submission_root
+    if not submissions_dir.exists():
+        raise SystemExit(f"Missing submissions directory: {submissions_dir}")
 
-        if baseline_root is None:
-            changed.append(candidate_file)
-            continue
+    for team_dir in sorted(path for path in submissions_dir.iterdir() if path.is_dir()):
+        for rel_path in candidates:
+            candidate_file = team_dir / rel_path
+            if not candidate_file.exists():
+                continue
 
-        baseline_file = baseline_root / task_name / rel_path
-        if not baseline_file.exists():
-            changed.append(candidate_file)
-            continue
+            if baseline_root is None:
+                changed.append(candidate_file)
+                continue
 
-        if candidate_file.read_bytes() != baseline_file.read_bytes():
-            changed.append(candidate_file)
+            baseline_file = baseline_root / task_name / submission_root / team_dir.name / rel_path
+            if not baseline_file.exists():
+                changed.append(candidate_file)
+                continue
+
+            if candidate_file.read_bytes() != baseline_file.read_bytes():
+                changed.append(candidate_file)
 
     if len(changed) != 1:
-        rel_candidates = ", ".join(candidates)
+        rel_candidates = ", ".join(f"{submission_root}/<team>/{name}" for name in candidates)
         raise SystemExit(
             "Expected exactly one changed submission file among: "
             f"{rel_candidates}. Found {len(changed)}."

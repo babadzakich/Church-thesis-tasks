@@ -11,7 +11,9 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from hakaton.checker import normalize_output, parse_test_file, validate_output
+from hakaton.checker import normalize_output
+
+MAX_LOG_CHARS = 2000
 
 
 def load_config(task_dir: Path) -> dict:
@@ -41,21 +43,24 @@ def compile_source(source: Path, output: Path) -> list[str]:
     return cmd
 
 def run_binary(binary: Path, test_input: Path, timeout_sec: int) -> tuple[str, float]:
-    with test_input.open("r", encoding="utf-8") as handle:
-        started = time.perf_counter()
-        result = subprocess.run(
-            [str(binary)],
-            stdin=handle,
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
-        )
-        elapsed = time.perf_counter() - started
+    try:
+        with test_input.open("r", encoding="utf-8") as handle:
+            started = time.perf_counter()
+            result = subprocess.run(
+                [str(binary)],
+                stdin=handle,
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec,
+            )
+            elapsed = time.perf_counter() - started
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"Timed out on {test_input.name} after {timeout_sec}s") from None
 
     if result.returncode != 0:
         sys.stderr.write(result.stdout)
         sys.stderr.write(result.stderr)
-        raise SystemExit(f"Program exited with code {result.returncode} on {test_input.name}")
+        raise RuntimeError(f"Program exited with code {result.returncode} on {test_input.name}")
 
     return result.stdout, elapsed
 
@@ -87,17 +92,27 @@ def fail_mismatch(
     visibility: str,
     expected: str | None = None,
     actual: str | None = None,
-) -> None:
+) -> list[str]:
+    def clip(text: str) -> str:
+        if len(text) <= MAX_LOG_CHARS:
+            return text
+        return text[:MAX_LOG_CHARS] + "\n...<truncated>..."
+
+    lines = [f"[FAIL] {test_name}", reason]
     print(f"[FAIL] {test_name}")
     print(reason)
     if visibility == "public":
         if expected is not None:
             print("Expected:")
-            print(expected or "<empty>")
+            shown = clip(expected or "<empty>")
+            print(shown)
+            lines.append(f"Expected:\n{shown}")
         if actual is not None:
             print("Actual:")
-            print(actual or "<empty>")
-    raise SystemExit(1)
+            shown = clip(actual or "<empty>")
+            print(shown)
+            lines.append(f"Actual:\n{shown}")
+    return lines
 
 
 def main() -> int:
@@ -110,12 +125,16 @@ def main() -> int:
     parser.add_argument("--answer-subdir")
     parser.add_argument("--answers-dir")
     parser.add_argument("--reference-source")
+    parser.add_argument("--test-pattern", default="*.in")
     parser.add_argument("--visibility", choices=["public", "hidden"], default="public")
+    parser.add_argument("--group-name")
+    parser.add_argument("--test-weight", type=int, default=0)
+    parser.add_argument("--json-output")
     parser.add_argument("--timeout-sec", type=int, default=5)
     args = parser.parse_args()
 
     task_dir = Path(args.task_dir).resolve()
-    load_config(task_dir)
+    config = load_config(task_dir)
 
     source = Path(args.source).resolve()
     if not args.tests_subdir and not args.tests_dir:
@@ -143,6 +162,9 @@ def main() -> int:
     if not source.exists():
         raise SystemExit(f"Missing source file: {source}")
 
+    group_name = args.group_name or tests_dir.name
+    json_output = Path(args.json_output).resolve() if args.json_output else None
+
     with tempfile.TemporaryDirectory(prefix="task-tests-") as temp_dir_name:
         temp_dir = Path(temp_dir_name)
         submission_binary = temp_dir / "submission"
@@ -155,42 +177,89 @@ def main() -> int:
             reference_binary = temp_dir / "reference"
             compile_source(reference_source, reference_binary)
 
-        test_inputs = sorted(tests_dir.glob("*.in"))
+        test_inputs = sorted(tests_dir.glob(args.test_pattern))
         if not test_inputs:
-            raise SystemExit(f"No input tests found in {tests_dir}")
+            raise SystemExit(f"No input tests found in {tests_dir} matching {args.test_pattern}")
 
         passed = 0
+        failed = 0
         total_time = 0.0
+        passed_tests: list[str] = []
+        failed_tests: list[str] = []
         for test_input in test_inputs:
-            actual_raw, elapsed = run_binary(submission_binary, test_input, args.timeout_sec)
-            expected_raw = read_expected(
-                test_input=test_input,
-                expected_mode=args.expected_mode,
-                answer_dir=answer_dir,
-                reference_binary=reference_binary,
-                timeout_sec=args.timeout_sec,
-            )
+            try:
+                actual_raw, elapsed = run_binary(submission_binary, test_input, args.timeout_sec)
+                expected_raw = read_expected(
+                    test_input=test_input,
+                    expected_mode=args.expected_mode,
+                    answer_dir=answer_dir,
+                    reference_binary=reference_binary,
+                    timeout_sec=args.timeout_sec,
+                )
+                actual = normalize_output(actual_raw)
+                expected = normalize_output(expected_raw)
+                total_time += elapsed
 
-            n, constraints = parse_test_file(test_input)
-            actual = normalize_output(actual_raw)
-            expected = normalize_output(expected_raw)
-            total_time += elapsed
+                if actual != expected:
+                    failed += 1
+                    failed_tests.append(test_input.stem)
+                    fail_mismatch(
+                        test_input.stem,
+                        reason="Output does not match expected answer.",
+                        visibility=args.visibility,
+                        expected=expected,
+                        actual=actual,
+                    )
+                    continue
 
-            expected_is_impossible = normalize_output(expected_raw) == "IMPOSSIBLE"
-            ok, reason = validate_output(actual_raw, n, constraints, expected_is_impossible)
-            if not ok:
+                passed += 1
+                passed_tests.append(test_input.stem)
+                print(f"[PASS] {test_input.stem} ({elapsed:.3f}s)")
+            except Exception as exc:
+                failed += 1
+                failed_tests.append(test_input.stem)
                 fail_mismatch(
                     test_input.stem,
-                    reason=reason,
+                    reason=str(exc),
                     visibility=args.visibility,
-                    expected=expected,
-                    actual=actual,
                 )
 
-            passed += 1
-            print(f"[PASS] {test_input.stem} ({elapsed:.3f}s)")
+        total_tests = len(test_inputs)
+        points_total = total_tests * args.test_weight
+        points_awarded = passed * args.test_weight
 
-        print(f"Passed {passed}/{len(test_inputs)} tests in {total_time:.3f}s")
+        print(f"Passed {passed}/{total_tests} tests in {total_time:.3f}s")
+        print(f"Failed: {failed}")
+        if args.test_weight:
+            print(f"Points: {points_awarded}/{points_total}")
+        if passed_tests:
+            print("Passed tests: " + ", ".join(passed_tests))
+        if failed_tests:
+            print("Failed tests: " + ", ".join(failed_tests))
+
+        if json_output:
+            summary = {
+                "task": config.get("name", task_dir.name),
+                "group_name": group_name,
+                "visibility": args.visibility,
+                "test_weight": args.test_weight,
+                "total_tests": total_tests,
+                "passed_tests": passed,
+                "failed_tests": failed,
+                "points_awarded": points_awarded,
+                "points_total": points_total,
+                "passed_test_names": passed_tests,
+                "failed_test_names": failed_tests,
+                "total_time_sec": round(total_time, 3),
+                "success": failed == 0,
+            }
+            json_output.write_text(
+                json.dumps(summary, ensure_ascii=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+        if failed:
+            raise SystemExit(1)
 
     return 0
 
