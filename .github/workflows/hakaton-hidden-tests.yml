@@ -78,7 +78,7 @@ jobs:
             --answers-dir ../private-tests/hakaton/tests/visible \
             --visibility public \
             --group-name Public \
-            --test-weight 5 \
+            --test-weight 6 \
             --json-output /tmp/public-summary.json \
             --timeout-sec 3
 
@@ -94,7 +94,7 @@ jobs:
             --answers-dir ../private-tests/hakaton/tests/hidden \
             --visibility hidden \
             --group-name Hidden \
-            --test-weight 10 \
+            --test-weight 7 \
             --json-output /tmp/hidden-summary.json \
             --timeout-sec 8
 
@@ -130,13 +130,13 @@ jobs:
           ensure_summary(
               "/tmp/public-summary.json",
               "Public",
-              5,
+              6,
               "public score step did not produce a summary",
           )
           ensure_summary(
               "/tmp/hidden-summary.json",
               "Hidden",
-              10,
+              7,
               "hidden score step did not produce a summary",
           )
           PY

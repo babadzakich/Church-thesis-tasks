@@ -81,29 +81,11 @@ def read_expected(
 def fail_mismatch(
     test_name: str,
     reason: str,
-    visibility: str,
-    expected: str | None = None,
-    actual: str | None = None,
 ) -> list[str]:
-    def clip(text: str) -> str:
-        if len(text) <= MAX_LOG_CHARS:
-            return text
-        return text[:MAX_LOG_CHARS] + "\n...<truncated>..."
 
     lines = [f"[FAIL] {test_name}", reason]
     print(f"[FAIL] {test_name}")
     print(reason)
-    if visibility == "public":
-        if expected is not None:
-            print("Expected:")
-            shown = clip(expected or "<empty>")
-            print(shown)
-            lines.append(f"Expected:\n{shown}")
-        if actual is not None:
-            print("Actual:")
-            shown = clip(actual or "<empty>")
-            print(shown)
-            lines.append(f"Actual:\n{shown}")
     return lines
 
 
@@ -113,7 +95,6 @@ def main() -> int:
     parser.add_argument("--source", required=True)
     parser.add_argument("--tests-dir", required=True)
     parser.add_argument("--answers-dir")
-    parser.add_argument("--test-pattern", default="*.in")
     parser.add_argument("--visibility", choices=["public", "hidden"], default="public")
     parser.add_argument("--group-name")
     parser.add_argument("--test-weight", type=int, default=0)
@@ -141,9 +122,9 @@ def main() -> int:
         submission_binary = temp_dir / "submission"
         compile_source(source, submission_binary)
 
-        test_inputs = sorted(tests_dir.glob(args.test_pattern))
+        test_inputs = sorted(tests_dir.glob("*.in"))
         if not test_inputs:
-            raise SystemExit(f"No input tests found in {tests_dir} matching {args.test_pattern}")
+            raise SystemExit(f"No input tests found in {tests_dir}")
 
         passed = 0
         failed = 0
