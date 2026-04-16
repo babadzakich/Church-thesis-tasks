@@ -113,7 +113,6 @@ def main() -> int:
     parser.add_argument("--source", required=True)
     parser.add_argument("--tests-dir", required=True)
     parser.add_argument("--answers-dir")
-    parser.add_argument("--reference-source")
     parser.add_argument("--test-pattern", default="*.in")
     parser.add_argument("--visibility", choices=["public", "hidden"], default="public")
     parser.add_argument("--group-name")
@@ -128,7 +127,6 @@ def main() -> int:
     source = Path(args.source).resolve()
     tests_dir = Path(args.tests_dir).resolve()
     answer_dir = Path(args.answers_dir).resolve() if args.answers_dir else None
-    reference_source = Path(args.reference_source).resolve() if args.reference_source else None
 
     if not tests_dir.exists():
         raise SystemExit(f"Missing tests directory: {tests_dir}")
@@ -142,13 +140,6 @@ def main() -> int:
         temp_dir = Path(temp_dir_name)
         submission_binary = temp_dir / "submission"
         compile_source(source, submission_binary)
-
-        reference_binary = None
-        if args.expected_mode == "reference":
-            if reference_source is None or not reference_source.exists():
-                raise SystemExit("Valid --reference-source is required for expected-mode=reference")
-            reference_binary = temp_dir / "reference"
-            compile_source(reference_source, reference_binary)
 
         test_inputs = sorted(tests_dir.glob(args.test_pattern))
         if not test_inputs:
