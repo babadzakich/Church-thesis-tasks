@@ -147,10 +147,7 @@ def main() -> int:
                     failed_tests.append(test_input.stem)
                     fail_mismatch(
                         test_input.stem,
-                        reason="Output does not match expected answer.",
-                        visibility=args.visibility,
-                        expected=expected,
-                        actual=actual,
+                        reason="Output does not match expected answer."
                     )
                     continue
 
