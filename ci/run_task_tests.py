@@ -160,7 +160,6 @@ def main() -> int:
                 fail_mismatch(
                     test_input.stem,
                     reason=str(exc),
-                    visibility=args.visibility,
                 )
 
         total_tests = len(test_inputs)
