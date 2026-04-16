@@ -74,9 +74,8 @@ jobs:
           python3 ci/run_task_tests.py \
             --task-dir hakaton \
             --source "${{ steps.detect.outputs.source }}" \
-            --tests-subdir tests/simple \
-            --expected-mode answers \
-            --answer-subdir tests/simple \
+            --tests-dir ../private-tests/hakaton/tests/visible \
+            --answers-dir ../private-tests/hakaton/tests/visible \
             --visibility public \
             --group-name Public \
             --test-weight 5 \
@@ -91,10 +90,8 @@ jobs:
           python3 ci/run_task_tests.py \
             --task-dir hakaton \
             --source "${{ steps.detect.outputs.source }}" \
-            --tests-dir ../private-tests/hakaton/tests \
-            --expected-mode reference \
-            --reference-source ../private-tests/hakaton/solution.cpp \
-            --test-pattern 'H*.in' \
+            --tests-dir ../private-tests/hakaton/tests/hidden \
+            --answers-dir ../private-tests/hakaton/tests/hidden \
             --visibility hidden \
             --group-name Hidden \
             --test-weight 10 \

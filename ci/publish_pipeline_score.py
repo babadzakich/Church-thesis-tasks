@@ -18,6 +18,25 @@ def read_team_hash(path: str) -> str:
     return team_hash
 
 
+def normalize_api_base_url(raw_url: str) -> str:
+    url = raw_url.strip()
+    if not url:
+        raise SystemExit("PIPELINE_API_BASE_URL is empty")
+
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.scheme:
+        url = "https://" + url
+        parsed = urllib.parse.urlparse(url)
+
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise SystemExit(
+            "Invalid PIPELINE_API_BASE_URL. Use a full host like "
+            "'https://example.com' or 'http://example.com'."
+        )
+
+    return url.rstrip("/")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-config", required=True)
@@ -42,6 +61,8 @@ def main() -> int:
     team_hash = read_team_hash(args.team_hash_file)
     score_value = score["normalized_score"]
 
+    base_url = normalize_api_base_url(args.api_base_url)
+
     query = urllib.parse.urlencode(
         {
             "team": team_hash,
@@ -51,7 +72,7 @@ def main() -> int:
         }
     )
 
-    url = args.api_base_url.rstrip("/") + "/api/pipeline?" + query
+    url = base_url + "/api/pipeline?" + query
     request = urllib.request.Request(url, method="GET")
 
     try:

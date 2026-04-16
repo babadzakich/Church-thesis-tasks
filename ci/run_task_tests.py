@@ -67,23 +67,15 @@ def run_binary(binary: Path, test_input: Path, timeout_sec: int) -> tuple[str, f
 
 def read_expected(
     test_input: Path,
-    expected_mode: str,
     answer_dir: Path | None,
-    reference_binary: Path | None,
-    timeout_sec: int,
 ) -> str:
-    if expected_mode == "answers":
-        if answer_dir is None:
-            raise SystemExit("Answer directory is required when expected-mode=answers")
-        answer_path = answer_dir / f"{test_input.stem}.ans"
-        if not answer_path.exists():
-            raise SystemExit(f"Missing answer file: {answer_path}")
-        return answer_path.read_text(encoding="utf-8")
-
-    if reference_binary is None:
-        raise SystemExit("Reference binary is required when expected-mode=reference")
-    output, _ = run_binary(reference_binary, test_input, timeout_sec)
-    return output
+    if answer_dir is None:
+        raise SystemExit("Answer directory is required when expected-mode=answers")
+    answer_path = answer_dir / f"{test_input.stem}.ans"
+    if not answer_path.exists():
+        raise SystemExit(f"Missing answer file: {answer_path}")
+    return answer_path.read_text(encoding="utf-8")
+    
 
 
 def fail_mismatch(
@@ -119,10 +111,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-dir", required=True)
     parser.add_argument("--source", required=True)
-    parser.add_argument("--tests-subdir")
-    parser.add_argument("--tests-dir")
-    parser.add_argument("--expected-mode", choices=["answers", "reference"], required=True)
-    parser.add_argument("--answer-subdir")
+    parser.add_argument("--tests-dir", required=True)
     parser.add_argument("--answers-dir")
     parser.add_argument("--reference-source")
     parser.add_argument("--test-pattern", default="*.in")
@@ -137,24 +126,8 @@ def main() -> int:
     config = load_config(task_dir)
 
     source = Path(args.source).resolve()
-    if not args.tests_subdir and not args.tests_dir:
-        raise SystemExit("Either --tests-subdir or --tests-dir is required")
-    if args.tests_subdir and args.tests_dir:
-        raise SystemExit("Use only one of --tests-subdir or --tests-dir")
-
-    if args.answer_subdir and args.answers_dir:
-        raise SystemExit("Use only one of --answer-subdir or --answers-dir")
-
-    tests_dir = (
-        Path(args.tests_dir).resolve()
-        if args.tests_dir
-        else (task_dir / args.tests_subdir).resolve()
-    )
-    answer_dir = (
-        Path(args.answers_dir).resolve()
-        if args.answers_dir
-        else (task_dir / args.answer_subdir).resolve() if args.answer_subdir else None
-    )
+    tests_dir = Path(args.tests_dir).resolve()
+    answer_dir = Path(args.answers_dir).resolve() if args.answers_dir else None
     reference_source = Path(args.reference_source).resolve() if args.reference_source else None
 
     if not tests_dir.exists():
@@ -191,10 +164,7 @@ def main() -> int:
                 actual_raw, elapsed = run_binary(submission_binary, test_input, args.timeout_sec)
                 expected_raw = read_expected(
                     test_input=test_input,
-                    expected_mode=args.expected_mode,
-                    answer_dir=answer_dir,
-                    reference_binary=reference_binary,
-                    timeout_sec=args.timeout_sec,
+                    answer_dir=answer_dir
                 )
                 actual = normalize_output(actual_raw)
                 expected = normalize_output(expected_raw)
