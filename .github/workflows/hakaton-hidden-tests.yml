@@ -54,6 +54,7 @@ jobs:
           echo "team_hash_file=$team_dir/team.hash" >> "$GITHUB_OUTPUT"
 
       - name: Validate team metadata
+        id: validate_team
         working-directory: trusted
         run: |
           if [ ! -f "${{ steps.detect.outputs.team_hash_file }}" ]; then
@@ -100,6 +101,49 @@ jobs:
             --json-output /tmp/hidden-summary.json \
             --timeout-sec 8
 
+      - name: Prepare fallback score inputs
+        if: always()
+        working-directory: trusted
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          def ensure_summary(path, group_name, test_weight, reason):
+              p = Path(path)
+              if p.exists():
+                  return
+              payload = {
+                  "task": "hakaton",
+                  "group_name": group_name,
+                  "visibility": group_name.lower(),
+                  "test_weight": test_weight,
+                  "total_tests": 0,
+                  "passed_tests": 0,
+                  "failed_tests": 0,
+                  "points_awarded": 0,
+                  "points_total": 0,
+                  "passed_test_names": [],
+                  "failed_test_names": [reason] if reason else [],
+                  "total_time_sec": 0.0,
+                  "success": False,
+              }
+              p.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+
+          ensure_summary(
+              "/tmp/public-summary.json",
+              "Public",
+              5,
+              "public score step did not produce a summary",
+          )
+          ensure_summary(
+              "/tmp/hidden-summary.json",
+              "Hidden",
+              10,
+              "hidden score step did not produce a summary",
+          )
+          PY
+
       - name: Build score report
         if: always()
         working-directory: trusted
@@ -112,7 +156,7 @@ jobs:
             --json-output /tmp/hakaton-score.json
 
       - name: Publish score to pipeline API
-        if: always()
+        if: always() && steps.detect.outcome == 'success' && steps.validate_team.outcome == 'success'
         working-directory: trusted
         env:
           PIPELINE_API_BASE_URL: ${{ secrets.PIPELINE_API_BASE_URL }}
@@ -131,7 +175,9 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const body = fs.readFileSync('/tmp/hakaton-score.md', 'utf8');
+            const body = fs.existsSync('/tmp/hakaton-score.md')
+              ? fs.readFileSync('/tmp/hakaton-score.md', 'utf8')
+              : '## Hakaton Score\n\nScore report could not be built.';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
